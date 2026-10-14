@@ -1,16 +1,16 @@
 {
-  "server": "http://192.168.1.10:8000",
+  "server": "http://192.168.0.51:8000",
   "api_key": "",
   "wake_word": "hey_jarvis",
   "language": "en",
   "session_id": "daikai",
-  "device": 15,
+  "device": "pipewire",
   "threshold": 0.5,
   "timeout": 180,
   "_help": {
     "api_key": "Leave this empty if the local server does not require an API key.",
     "wake_word": "The wake-word model stored in the models directory. Available models include hey_jarvis, alexa, hey_mycroft, hey_rhasspy, timer, and weather.",
-    "device": "The input device name or index shown by: python3 voice_client.py --list-devices. On this computer, use 15 for PipeWire with the default BY Y01 microphone. The index may change after a restart.",
+    "device": "Use pipewire so the client records from PipeWire's default input and converts it to 16 kHz mono. Select the physical microphone with: wpctl set-default SOURCE_ID.",
     "threshold": "Wake-word detection sensitivity from 0.0 to 1.0. Lower values trigger more easily but may cause false detections; higher values reduce false detections but may be harder to trigger. Start with 0.5.",
     "timeout": "Maximum number of seconds to wait for the server to respond to each request. A value of 180 means three minutes."
   }

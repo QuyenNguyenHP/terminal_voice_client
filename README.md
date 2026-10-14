@@ -39,7 +39,7 @@ Client dùng ONNX Runtime nên không cần cài `tflite-runtime`. Tùy chọn
 
 ```bash
 mkdir -p /home/daikai/terminal_voice_client/models
-python3 -c "from openwakeword.utils import download_models; download_models(['hey_jarvis'], target_directory='/home/daikai/terminal_voice_client/models')"
+python3 -c "from openwakeword.utils import download_models; download_models(['hey_jarvis'], target_directory='~/terminal_voice_client/models')"
 ```
 
 Kiểm tra các model đã tải:
@@ -75,12 +75,12 @@ Mở `/home/daikai/terminal_voice_client/config.json` và cập nhật các giá
   "wake_word": "hey_jarvis",
   "language": "en",
   "session_id": "phong-khach",
-  "device": 15,
+  "device": "pipewire",
   "threshold": 0.5,
   "timeout": 180,
   "_help": {
     "wake_word": "Wake word model trong thư mục models. Có thể dùng: hey_jarvis, alexa, hey_mycroft, hey_rhasspy, timer hoặc weather.",
-    "device": "Index hoặc tên input device từ --list-devices. Máy hiện tại dùng 15 cho PipeWire/BY Y01.",
+    "device": "Dùng pipewire để thu từ input mặc định của PipeWire và tự chuyển đổi sang 16 kHz mono. Chọn micro vật lý bằng wpctl set-default SOURCE_ID.",
     "threshold": "Ngưỡng nhận diện từ 0.0 đến 1.0; thấp dễ kích hoạt hơn, cao ít nhận nhầm hơn.",
     "timeout": "Số giây tối đa chờ server trả lời."
   }
@@ -105,8 +105,9 @@ Tham số dòng lệnh vẫn có thể dùng để ghi đè tạm thời một g
 Object `_help` chỉ chứa hướng dẫn và được chương trình bỏ qua. Ý nghĩa các cấu
 hình âm thanh quan trọng:
 
-- `device`: index hoặc tên thiết bị thu âm. Dùng `python3 voice_client.py
-  --list-devices` để xem danh sách. Index có thể thay đổi sau khi khởi động lại.
+- `device`: thiết bị mà client mở. Khuyến nghị dùng tên `pipewire`; sau đó chọn
+  micro vật lý mặc định bằng `wpctl` như hướng dẫn bên dưới. Không nên lưu index
+  thiết bị vì index có thể thay đổi sau khi khởi động lại.
 - `threshold`: ngưỡng nhận diện wake word từ `0.0` đến `1.0`. Giảm giá trị nếu
   khó đánh thức; tăng giá trị nếu chương trình thường xuyên nhận nhầm. Nên bắt
   đầu bằng `0.5`.
@@ -129,21 +130,69 @@ Sau đó sửa trong `config.json`:
 "wake_word": "alexa"
 ```
 
-Xem danh sách micro rồi chọn bằng tên hoặc index:
+### Chọn microphone
+
+Client cần âm thanh 16 kHz mono. Micro BY Y01 chỉ hỗ trợ trực tiếp 44.1/48 kHz
+stereo, vì vậy không chọn thiết bị ALSA vật lý như `BY Y01: USB Audio (hw:2,0)`
+trong `config.json`. Hãy để PipeWire thu từ BY Y01 và chuyển đổi định dạng cho
+client:
+
+```json
+"device": "pipewire"
+```
+
+Xem các thiết bị mà client có thể mở:
 
 ```bash
 python3 voice_client.py --list-devices
-python3 voice_client.py --device 2
 ```
 
-Trên máy dùng PipeWire, nên chọn thiết bị `pipewire` thay vì thiết bị ALSA vật
-lý. PipeWire sẽ tự chuyển đổi âm thanh sang định dạng 16 kHz mono mà client yêu
-cầu. Ví dụ trên máy hiện tại, thiết bị `pipewire` có index `15` và sử dụng micro
-mặc định của hệ thống (BY Y01). Index có thể thay đổi sau khi khởi động lại, vì
-vậy hãy kiểm tra lại bằng `--list-devices` trước khi chạy.
+Xem các nguồn thu của PipeWire:
 
-Không nên chọn trực tiếp BY Y01 bằng `--device 4` trên máy này vì thiết bị ALSA
-vật lý không hỗ trợ trực tiếp tần số lấy mẫu 16 kHz.
+```bash
+wpctl status
+```
+
+Trong mục `Sources`, dấu `*` chỉ micro đang được dùng mặc định. Ví dụ:
+
+```text
+Sources:
+  * 50. BY Y01 Analog Stereo
+    53. Family 17h/19h HD Audio Controller Analog Stereo
+```
+
+Nếu BY Y01 chưa có dấu `*`, dùng ID được hiển thị trên chính máy đó để chọn nó:
+
+```bash
+wpctl set-default 50
+```
+
+ID `50` chỉ là ví dụ và có thể thay đổi. Kiểm tra chính xác nguồn mặc định sau
+khi chọn:
+
+```bash
+wpctl inspect @DEFAULT_AUDIO_SOURCE@ | grep -E 'alsa.card_name|node.description|node.name'
+```
+
+Khi BY Y01 được chọn, kết quả sẽ chứa `BY Y01` và một node tương tự
+`alsa_input.usb-BY_BY_Y01...`. Sau đó chạy client bình thường hoặc kiểm tra tạm
+thời mà không sửa cấu hình:
+
+```bash
+python3 voice_client.py --device pipewire
+```
+
+Đường đi của âm thanh lúc này là:
+
+```text
+BY Y01 (44.1/48 kHz stereo) → PipeWire → client (16 kHz mono)
+```
+
+Nếu rút BY Y01, PipeWire có thể chuyển sang micro tích hợp đang khả dụng. Chạy
+`wpctl status` để biết micro nào đang có dấu `*` trước khi khởi động client.
+
+Nếu mở trực tiếp BY Y01 bằng index ALSA, client sẽ báo `paInvalidSampleRate` vì
+thiết bị vật lý không nhận trực tiếp định dạng 16 kHz mono mà client yêu cầu.
 
 Thứ tự ưu tiên cấu hình là: tham số dòng lệnh, biến môi trường, `config.json`,
 sau đó là giá trị mặc định. Các biến môi trường tương ứng:
