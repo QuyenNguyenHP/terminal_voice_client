@@ -6,12 +6,18 @@
   "session_id": "daikai",
   "device": "pipewire",
   "threshold": 0.5,
+  "silence_seconds": 2.5,
+  "silence_multiplier": 2.0,
+  "min_silence_rms": 100.0,
   "timeout": 180,
   "_help": {
     "api_key": "Leave this empty if the local server does not require an API key.",
     "wake_word": "The wake-word model stored in the models directory. Available models include hey_jarvis, alexa, hey_mycroft, hey_rhasspy, timer, and weather.",
     "device": "Use pipewire so the client records from PipeWire's default input and converts it to 16 kHz mono. Select the physical microphone with: wpctl set-default SOURCE_ID.",
     "threshold": "Wake-word detection sensitivity from 0.0 to 1.0. Lower values trigger more easily but may cause false detections; higher values reduce false detections but may be harder to trigger. Start with 0.5.",
+    "silence_seconds": "Seconds of continuous silence before sending audio. Increase this if natural pauses cut off your question.",
+    "silence_multiplier": "Speech threshold relative to calibrated ambient noise. Lower this if quiet speech is treated as silence.",
+    "min_silence_rms": "Minimum RMS speech threshold. Lower this if the microphone signal or your voice is quiet.",
     "timeout": "Maximum number of seconds to wait for the server to respond to each request. A value of 180 means three minutes."
   }
 }

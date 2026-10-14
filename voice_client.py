@@ -31,12 +31,12 @@ CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.j
 @dataclass(frozen=True)
 class AudioConfig:
     block_samples: int = 1_280  # 80 ms; native openWakeWord frame size.
-    silence_seconds: float = 1.2
+    silence_seconds: float = 2.5
     max_seconds: float = 20.0
     min_seconds: float = 0.5
     pre_roll_seconds: float = 0.24
-    silence_multiplier: float = 2.8
-    min_silence_rms: float = 180.0
+    silence_multiplier: float = 2.0
+    min_silence_rms: float = 100.0
 
 
 def rms(pcm: bytes) -> float:
@@ -60,7 +60,7 @@ class WakeWordDetector:
             from openwakeword.model import Model
         except ImportError as exc:
             raise RuntimeError(
-                "Thiếu openWakeWord. Chạy: pip install -r requirements.txt"
+                "openWakeWord is missing. Run: pip install -r requirements.txt"
             ) from exc
         model_path = model
         if not os.path.isfile(model_path):
@@ -82,8 +82,8 @@ class WakeWordDetector:
             )
         except Exception as exc:
             raise RuntimeError(
-                f"Không tải được wake-word model '{model}' từ '{MODEL_DIR}'. "
-                "Xem README để tải model."
+                f"Could not load wake-word model '{model}' from '{MODEL_DIR}'. "
+                "See the README for model download instructions."
             ) from exc
 
     def detected(self, pcm: bytes) -> tuple[bool, float]:
@@ -101,7 +101,7 @@ class Microphone:
             import sounddevice as sd
         except ImportError as exc:
             raise RuntimeError(
-                "Thiếu sounddevice. Chạy: pip install -r requirements.txt"
+                "sounddevice is missing. Run: pip install -r requirements.txt"
             ) from exc
         self._sd = sd
         self._device = device
@@ -126,11 +126,11 @@ class Microphone:
 
     def blocks(self) -> Iterator[bytes]:
         if self._stream is None:
-            raise RuntimeError("Microphone chưa được mở")
+            raise RuntimeError("The microphone is not open")
         while True:
             data, overflowed = self._stream.read(self._block_samples)
             if overflowed:
-                print("\n[Cảnh báo] Micro bị tràn bộ đệm.", file=sys.stderr)
+                print("\n[Warning] Microphone input overflow.", file=sys.stderr)
             yield bytes(data)
 
 
@@ -154,7 +154,7 @@ def record_utterance(blocks: Iterator[bytes], noise_rms: float, cfg: AudioConfig
                 speech_started = True
                 captured.extend(pre_roll)
                 quiet_blocks = 0
-                print("Đang ghi âm…", flush=True)
+                print("Recording...", flush=True)
             elif total_blocks >= max_blocks:
                 break
             continue
@@ -195,16 +195,16 @@ def send_voice(
             detail = response.json().get("detail") or response.text
         except ValueError:
             detail = response.text
-        raise RuntimeError(f"Server trả HTTP {response.status_code}: {detail}") from exc
+        raise RuntimeError(f"Server returned HTTP {response.status_code}: {detail}") from exc
     payload = response.json()
     if "text" not in payload:
-        raise RuntimeError("Phản hồi server thiếu trường 'text'")
+        raise RuntimeError("Server response is missing the 'text' field")
     return payload
 
 
 def calibrate(blocks: Iterator[bytes], seconds: float, block_samples: int) -> float:
     count = max(1, round(seconds * SAMPLE_RATE / block_samples))
-    print(f"Hiệu chỉnh tiếng ồn {seconds:g} giây — vui lòng giữ im lặng…", flush=True)
+    print(f"Calibrating ambient noise for {seconds:g} seconds - please stay quiet...", flush=True)
     levels = [rms(next(blocks)) for _ in range(count)]
     return float(np.percentile(levels, 75))
 
@@ -216,9 +216,9 @@ def load_config(path: str = CONFIG_PATH) -> dict:
     except FileNotFoundError:
         return {}
     except (OSError, json.JSONDecodeError) as exc:
-        raise RuntimeError(f"Không đọc được file cấu hình '{path}': {exc}") from exc
+        raise RuntimeError(f"Could not read configuration file '{path}': {exc}") from exc
     if not isinstance(config, dict):
-        raise RuntimeError(f"File cấu hình '{path}' phải chứa một JSON object")
+        raise RuntimeError(f"Configuration file '{path}' must contain a JSON object")
     return config
 
 
@@ -228,16 +228,34 @@ def config_value(config: dict, key: str, env_name: str, fallback: object = None)
 
 def parse_args(config: dict | None = None) -> argparse.Namespace:
     config = load_config() if config is None else config
-    parser = argparse.ArgumentParser(description="Voice assistant terminal có wake word")
+    parser = argparse.ArgumentParser(description="Wake-word voice assistant for the terminal")
     parser.add_argument("--server", default=config_value(config, "server", "VOICE_SERVER_URL", "http://127.0.0.1:8000"))
     parser.add_argument("--api-key", default=config_value(config, "api_key", "VOICE_API_KEY"))
     parser.add_argument("--language", default=config_value(config, "language", "VOICE_LANGUAGE", "en"))
     parser.add_argument("--session-id", default=config_value(config, "session_id", "VOICE_SESSION_ID") or f"terminal-{uuid.uuid4()}")
     parser.add_argument("--wake-word", default=config_value(config, "wake_word", "WAKE_WORD", "hey_jarvis"))
     parser.add_argument("--threshold", type=float, default=float(config_value(config, "threshold", "WAKE_THRESHOLD", 0.5)))
-    parser.add_argument("--device", default=config_value(config, "device", "MIC_DEVICE"), help="Tên hoặc index của input device")
-    parser.add_argument("--timeout", type=float, default=float(config.get("timeout", 180.0)), help="HTTP timeout (giây)")
-    parser.add_argument("--list-devices", action="store_true")
+    parser.add_argument("--device", default=config_value(config, "device", "MIC_DEVICE"), help="Input device name or index")
+    parser.add_argument("--timeout", type=float, default=float(config.get("timeout", 180.0)), help="HTTP timeout in seconds")
+    parser.add_argument(
+        "--silence-seconds",
+        type=float,
+        default=float(config_value(config, "silence_seconds", "VOICE_SILENCE_SECONDS", 2.5)),
+        help="Continuous silence required to finish an utterance",
+    )
+    parser.add_argument(
+        "--silence-multiplier",
+        type=float,
+        default=float(config_value(config, "silence_multiplier", "VOICE_SILENCE_MULTIPLIER", 2.0)),
+        help="Ambient noise multiplier used as the speech threshold",
+    )
+    parser.add_argument(
+        "--min-silence-rms",
+        type=float,
+        default=float(config_value(config, "min_silence_rms", "VOICE_MIN_SILENCE_RMS", 100.0)),
+        help="Minimum RMS speech threshold",
+    )
+    parser.add_argument("--list-devices", action="store_true", help="List audio devices and exit")
     return parser.parse_args()
 
 
@@ -247,7 +265,7 @@ def main() -> int:
         try:
             import sounddevice as sd
         except ImportError:
-            print("Thiếu sounddevice. Chạy: pip install -r requirements.txt", file=sys.stderr)
+            print("sounddevice is missing. Run: pip install -r requirements.txt", file=sys.stderr)
             return 2
         print(sd.query_devices())
         return 0
@@ -255,7 +273,11 @@ def main() -> int:
     device: str | int | None = args.device
     if isinstance(device, str) and device.isdigit():
         device = int(device)
-    cfg = AudioConfig()
+    cfg = AudioConfig(
+        silence_seconds=args.silence_seconds,
+        silence_multiplier=args.silence_multiplier,
+        min_silence_rms=args.min_silence_rms,
+    )
     running = True
 
     def stop(_signum: int, _frame: object) -> None:
@@ -271,7 +293,7 @@ def main() -> int:
             blocks = microphone.blocks()
             noise = calibrate(blocks, 1.5, cfg.block_samples)
             print(
-                f"Sẵn sàng. Hãy nói '{args.wake_word}' (Ctrl+C để thoát).\n"
+                f"Ready. Say '{args.wake_word}' (Ctrl+C to exit).\n"
                 f"Session: {args.session_id}",
                 flush=True,
             )
@@ -280,29 +302,29 @@ def main() -> int:
                 found, _score = detector.detected(block)
                 if not found:
                     continue
-                print(f"\n✓ Đã nghe wake word '{args.wake_word}'. Hãy nói câu hỏi.", flush=True)
+                print(f"\nWake word '{args.wake_word}' detected. Ask your question.", flush=True)
                 detector.reset()
                 audio = record_utterance(blocks, noise, cfg)
                 if not audio:
-                    print("Không nghe thấy câu hỏi; quay lại chờ wake word.", flush=True)
+                    print("No question detected; returning to wake-word mode.", flush=True)
                     continue
-                print("Đang gửi tới AI server…", flush=True)
+                print("Sending audio to the AI server...", flush=True)
                 try:
                     result = send_voice(
                         args.server, audio, args.session_id, args.language or None,
                         args.api_key, args.timeout,
                     )
-                    print(f"Bạn: {result.get('transcript', '(không có transcript)')}")
+                    print(f"You: {result.get('transcript', '(no transcript)')}")
                     print(f"AI: {result['text']}\n")
                 except (requests.RequestException, RuntimeError, ValueError) as exc:
-                    print(f"Lỗi: {exc}\n", file=sys.stderr)
-                print(f"Đang chờ '{args.wake_word}'…", flush=True)
+                    print(f"Error: {exc}\n", file=sys.stderr)
+                print(f"Waiting for '{args.wake_word}'...", flush=True)
     except (RuntimeError, OSError) as exc:
-        print(f"Lỗi khởi động: {exc}", file=sys.stderr)
+        print(f"Startup error: {exc}", file=sys.stderr)
         return 2
     except KeyboardInterrupt:
         pass
-    print("Đã dừng.")
+    print("Stopped.")
     return 0
 
 

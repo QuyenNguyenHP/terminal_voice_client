@@ -77,11 +77,17 @@ Mở `/home/daikai/terminal_voice_client/config.json` và cập nhật các giá
   "session_id": "phong-khach",
   "device": "pipewire",
   "threshold": 0.5,
+  "silence_seconds": 2.5,
+  "silence_multiplier": 2.0,
+  "min_silence_rms": 100.0,
   "timeout": 180,
   "_help": {
     "wake_word": "Wake word model trong thư mục models. Có thể dùng: hey_jarvis, alexa, hey_mycroft, hey_rhasspy, timer hoặc weather.",
     "device": "Dùng pipewire để thu từ input mặc định của PipeWire và tự chuyển đổi sang 16 kHz mono. Chọn micro vật lý bằng wpctl set-default SOURCE_ID.",
     "threshold": "Ngưỡng nhận diện từ 0.0 đến 1.0; thấp dễ kích hoạt hơn, cao ít nhận nhầm hơn.",
+    "silence_seconds": "Số giây im lặng liên tục trước khi gửi audio.",
+    "silence_multiplier": "Hệ số ngưỡng giọng nói so với tiếng ồn nền.",
+    "min_silence_rms": "Ngưỡng RMS tối thiểu để coi là giọng nói.",
     "timeout": "Số giây tối đa chờ server trả lời."
   }
 }
@@ -111,6 +117,14 @@ hình âm thanh quan trọng:
 - `threshold`: ngưỡng nhận diện wake word từ `0.0` đến `1.0`. Giảm giá trị nếu
   khó đánh thức; tăng giá trị nếu chương trình thường xuyên nhận nhầm. Nên bắt
   đầu bằng `0.5`.
+- `silence_seconds`: số giây im lặng liên tục trước khi client kết thúc câu và
+  gửi audio. Tăng giá trị này nếu câu bị gửi khi bạn chỉ đang tạm dừng. Giá trị
+  khuyến nghị ban đầu là `2.5`.
+- `silence_multiplier`: hệ số nhân với mức tiếng ồn nền để xác định giọng nói.
+  Giảm nhẹ nếu lời nói nhỏ bị coi là im lặng. Giá trị mặc định là `2.0`.
+- `min_silence_rms`: ngưỡng âm lượng tối thiểu để xác định giọng nói. Giảm nếu
+  micro hoặc giọng nói nhỏ; giảm quá thấp có thể khiến tiếng ồn giữ bản ghi mở.
+  Giá trị mặc định là `100.0`.
 - `timeout`: thời gian tối đa, tính bằng giây, chờ voice server trả lời cho mỗi
   câu hỏi. `180` tương đương 3 phút.
 
@@ -197,6 +211,7 @@ thiết bị vật lý không nhận trực tiếp định dạng 16 kHz mono m�
 Thứ tự ưu tiên cấu hình là: tham số dòng lệnh, biến môi trường, `config.json`,
 sau đó là giá trị mặc định. Các biến môi trường tương ứng:
 `VOICE_SERVER_URL`, `VOICE_API_KEY`, `VOICE_LANGUAGE`, `VOICE_SESSION_ID`,
-`WAKE_WORD`, `WAKE_THRESHOLD`, `MIC_DEVICE`.
+`WAKE_WORD`, `WAKE_THRESHOLD`, `MIC_DEVICE`, `VOICE_SILENCE_SECONDS`,
+`VOICE_SILENCE_MULTIPLIER`, `VOICE_MIN_SILENCE_RMS`.
 
 Các wake-word model có sẵn tùy phiên bản openWakeWord, thường gồm `hey_jarvis`, `alexa` và `hey_mycroft`. Một cụm tiếng Việt tùy ý cần model openWakeWord đã được huấn luyện; truyền đường dẫn model đó qua `--wake-word`.
