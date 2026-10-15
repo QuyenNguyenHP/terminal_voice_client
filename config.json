@@ -4,6 +4,7 @@
   "wake_word": "hey_jarvis",
   "language": "en",
   "session_id": "daikai",
+  "response_format": "text",
   "device": "pipewire",
   "threshold": 0.5,
   "silence_seconds": 2.5,
@@ -11,6 +12,7 @@
   "min_silence_rms": 100.0,
   "timeout": 180,
   "_help": {
+    "response_format": "Default offered at startup: text prints JSON output; audio plays the server's WAV response.",
     "api_key": "Leave this empty if the local server does not require an API key.",
     "wake_word": "The wake-word model stored in the models directory. Available models include hey_jarvis, alexa, hey_mycroft, hey_rhasspy, timer, and weather.",
     "device": "Use pipewire so the client records from PipeWire's default input and converts it to 16 kHz mono. Select the physical microphone with: wpctl set-default SOURCE_ID.",

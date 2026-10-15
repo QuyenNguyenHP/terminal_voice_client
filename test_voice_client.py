@@ -4,7 +4,9 @@ import wave
 
 import numpy as np
 
-from voice_client import AudioConfig, record_utterance, rms, wav_bytes
+from unittest.mock import patch
+
+from voice_client import AudioConfig, choose_response_format, record_utterance, rms, wav_bytes
 
 
 def block(level: int, samples: int = 1_280) -> bytes:
@@ -33,6 +35,14 @@ class AudioTests(unittest.TestCase):
         cfg = AudioConfig(max_seconds=0.16)
         result = record_utterance(iter([block(10), block(10)]), noise_rms=10, cfg=cfg)
         self.assertEqual(result, b"")
+
+    def test_choose_audio_response(self):
+        with patch("builtins.input", return_value="2"):
+            self.assertEqual(choose_response_format(), "audio")
+
+    def test_empty_response_choice_uses_default(self):
+        with patch("builtins.input", return_value=""):
+            self.assertEqual(choose_response_format("text"), "text")
 
 
 if __name__ == "__main__":

@@ -75,6 +75,7 @@ Mở `/home/daikai/terminal_voice_client/config.json` và cập nhật các giá
   "wake_word": "hey_jarvis",
   "language": "en",
   "session_id": "phong-khach",
+  "response_format": "text",
   "device": "pipewire",
   "threshold": 0.5,
   "silence_seconds": 2.5,
@@ -103,6 +104,13 @@ Khởi động `voice_ai_server`, sau đó chạy:
 ```bash
 cd /home/daikai/terminal_voice_client
 python3 voice_client.py
+```
+
+Khi khởi động, chọn `1`/`text` để in câu trả lời hoặc `2`/`audio` để phát
+giọng nói trả về từ server. Có thể bỏ qua menu bằng tham số dòng lệnh:
+
+```bash
+python3 voice_client.py --response-format audio
 ```
 
 Chương trình tự đọc `config.json` trong cùng thư mục với `voice_client.py`.

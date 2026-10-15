@@ -39,6 +39,12 @@ class AudioConfig:
     min_silence_rms: float = 100.0
 
 
+@dataclass(frozen=True)
+class AudioResponse:
+    data: bytes
+    content_type: str
+
+
 def rms(pcm: bytes) -> float:
     samples = np.frombuffer(pcm, dtype=np.int16).astype(np.float32)
     return float(np.sqrt(np.mean(samples * samples))) if samples.size else 0.0
@@ -175,9 +181,11 @@ def send_voice(
     language: str | None,
     api_key: str | None,
     timeout: float,
-) -> dict:
+    response_format: str = "text",
+) -> dict | AudioResponse:
     url = server_url.rstrip("/") + "/v1/voice/chat"
-    form = {"session_id": session_id, "response_format": "json"}
+    api_response_format = "json" if response_format == "text" else "audio"
+    form = {"session_id": session_id, "response_format": api_response_format}
     if language:
         form["language"] = language
     headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
@@ -196,10 +204,69 @@ def send_voice(
         except ValueError:
             detail = response.text
         raise RuntimeError(f"Server returned HTTP {response.status_code}: {detail}") from exc
+    if response_format == "audio":
+        if not response.content:
+            raise RuntimeError("Server returned an empty audio response")
+        return AudioResponse(
+            data=response.content,
+            content_type=response.headers.get("Content-Type", "application/octet-stream")
+            .split(";", 1)[0]
+            .strip()
+            .lower(),
+        )
+
     payload = response.json()
     if "text" not in payload:
         raise RuntimeError("Server response is missing the 'text' field")
     return payload
+
+
+def play_audio(response: AudioResponse) -> None:
+    """Play an uncompressed WAV response through the default output device."""
+    try:
+        with wave.open(io.BytesIO(response.data), "rb") as wav:
+            if wav.getcomptype() != "NONE":
+                raise RuntimeError(f"Unsupported WAV compression: {wav.getcomptype()}")
+            sample_widths = {1: "uint8", 2: "int16", 3: "int24", 4: "int32"}
+            dtype = sample_widths.get(wav.getsampwidth())
+            if dtype is None:
+                raise RuntimeError(f"Unsupported WAV sample width: {wav.getsampwidth()} bytes")
+            channels = wav.getnchannels()
+            sample_rate = wav.getframerate()
+            frames = wav.readframes(wav.getnframes())
+    except (wave.Error, EOFError) as exc:
+        raise RuntimeError(
+            f"Server returned {response.content_type}, but the client requires PCM WAV audio"
+        ) from exc
+
+    try:
+        import sounddevice as sd
+    except ImportError as exc:
+        raise RuntimeError("sounddevice is missing. Run: pip install -r requirements.txt") from exc
+
+    with sd.RawOutputStream(
+        samplerate=sample_rate,
+        channels=channels,
+        dtype=dtype,
+    ) as stream:
+        stream.write(frames)
+
+
+def choose_response_format(default: str = "text") -> str:
+    """Ask an interactive user whether the AI should answer with text or audio."""
+    choices = {"1": "text", "text": "text", "2": "audio", "audio": "audio"}
+    while True:
+        try:
+            answer = input(
+                f"Output type: [1] text, [2] audio (default: {default}): "
+            ).strip().lower()
+        except EOFError:
+            return default
+        if not answer:
+            return default
+        if answer in choices:
+            return choices[answer]
+        print("Please enter 1/text or 2/audio.", file=sys.stderr)
 
 
 def calibrate(blocks: Iterator[bytes], seconds: float, block_samples: int) -> float:
@@ -238,6 +305,11 @@ def parse_args(config: dict | None = None) -> argparse.Namespace:
     parser.add_argument("--device", default=config_value(config, "device", "MIC_DEVICE"), help="Input device name or index")
     parser.add_argument("--timeout", type=float, default=float(config.get("timeout", 180.0)), help="HTTP timeout in seconds")
     parser.add_argument(
+        "--response-format",
+        choices=("text", "audio"),
+        help="AI output type; if omitted, ask when the program starts",
+    )
+    parser.add_argument(
         "--silence-seconds",
         type=float,
         default=float(config_value(config, "silence_seconds", "VOICE_SILENCE_SECONDS", 2.5)),
@@ -270,6 +342,11 @@ def main() -> int:
         print(sd.query_devices())
         return 0
 
+    configured_format = str(load_config().get("response_format", "text")).lower()
+    if configured_format not in {"text", "audio"}:
+        configured_format = "text"
+    response_format = args.response_format or choose_response_format(configured_format)
+
     device: str | int | None = args.device
     if isinstance(device, str) and device.isdigit():
         device = int(device)
@@ -294,7 +371,8 @@ def main() -> int:
             noise = calibrate(blocks, 1.5, cfg.block_samples)
             print(
                 f"Ready. Say '{args.wake_word}' (Ctrl+C to exit).\n"
-                f"Session: {args.session_id}",
+                f"Session: {args.session_id}\n"
+                f"Output: {response_format}",
                 flush=True,
             )
             while running:
@@ -312,10 +390,15 @@ def main() -> int:
                 try:
                     result = send_voice(
                         args.server, audio, args.session_id, args.language or None,
-                        args.api_key, args.timeout,
+                        args.api_key, args.timeout, response_format,
                     )
-                    print(f"You: {result.get('transcript', '(no transcript)')}")
-                    print(f"AI: {result['text']}\n")
+                    if isinstance(result, AudioResponse):
+                        print("AI: playing audio response...", flush=True)
+                        play_audio(result)
+                        print()
+                    else:
+                        print(f"You: {result.get('transcript', '(no transcript)')}")
+                        print(f"AI: {result['text']}\n")
                 except (requests.RequestException, RuntimeError, ValueError) as exc:
                     print(f"Error: {exc}\n", file=sys.stderr)
                 print(f"Waiting for '{args.wake_word}'...", flush=True)
